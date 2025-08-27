@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ontological Local Filesystem Visualizer (FileSlayerMap5)</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.157.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; margin: 0; background-color: #111827; color: #f3f4f6; overflow: hidden; display: flex; }
+        #main-content { flex-grow: 1; position: relative; }
+        #controls-panel { flex-shrink: 0; width: 420px; background-color: rgba(17, 24, 39, 0.9); padding: 20px; border-right: 1px solid #374151; backdrop-filter: blur(10px); display: flex; flex-direction: column; height: 100vh; overflow-y: auto; }
+        .control-group { padding-bottom: 1rem; margin-bottom: 1rem; border-bottom: 1px solid #374151; }
+        .control-group:last-child { border-bottom: none; }
+        button { width: 100%; background: #3b82f6; border-radius: 6px; padding: 10px; color: #f3f4f6; font-weight: 600; cursor: pointer; transition: background-color 0.2s; }
+        button:hover:not(:disabled) { background-color: #2563eb; }
+        button:disabled { background-color: #4b5563; cursor: not-allowed; }
+        
+        #info-box { background-color: #1f2937; border-radius: 8px; padding: 1rem; margin-top: 0.5rem; margin-bottom: 1rem; flex-grow: 1.5; min-height: 200px; overflow-y: auto; word-wrap: break-word; border: 1px solid #2d3748; }
+        .info-label { font-weight: 600; color: #9ca3af; }
+        input[type="text"], select { width: 100%; background: #1f2937; border: 1px solid #4b5563; border-radius: 6px; padding: 4px; font-size: 0.8rem; color: #f3f4f6;}
+        .modulator-slot { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.5rem; border: 1px solid #2d3748; padding: 0.5rem; border-radius: 6px;}
+        .modulator-slot .key-input-wrapper { display: flex; gap: 0.5rem; }
+        .modulator-slot .key-input-wrapper input[type="text"] { flex-grow: 1; }
+        .modulator-slot .intensity-slider-wrapper { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.25rem; }
+        .modulator-slot .intensity-slider-wrapper input[type="range"] { width: auto; flex-grow: 1; height: 6px; }
+        .modulator-slot .intensity-slider-wrapper span { font-size: 0.75rem; color: #9ca3af; width: 30px; text-align: right; }
+        input[type="checkbox"] { width: 1.25rem; height: 1.25rem; border-radius: 4px; background-color: #374151; border-color: #4b5563; }
+        input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 8px; padding: 0; background: #374151; border-radius: 4px; outline: none; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; background: #3b82f6; cursor: pointer; border-radius: 50%; border: 2px solid #1f2937; }
+        input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; background: #3b82f6; cursor: pointer; border-radius: 50%; border: 2px solid #1f2937; }
+        
+        #loading-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(17, 24, 39, 0.9); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; transition: opacity 0.3s ease-in-out; pointer-events: none; opacity: 0; visibility: hidden; }
+        #loading-overlay.visible { opacity: 1; visibility: visible; pointer-events: all; }
+        .spinner { width: 56px; height: 56px; border: 6px solid #4b5563; border-top-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #loading-text { color: #f3f4f6; margin-top: 1rem; font-size: 1.2rem; }
+    </style>
+</head>
+<body>
+
+    <div id="controls-panel">
+        <h1 class="text-2xl font-bold mb-4">Ontological Visualizer</h1>
+        
+        <div class="control-group">
+            <h2 class="text-lg font-semibold mb-3">1. Load Local Filesystem</h2>
+            <input type="file" id="folder-picker" webkitdirectory directory style="display: none;">
+            <button id="load-dir-btn">Load Directory</button>
+            <input type="file" id="file-picker" style="display: none;">
+            <button id="load-file-btn" class="mt-2">Load Individual File</button>
+            <p class="text-sm text-gray-400 mt-2">Select a folder or individual file to visualize.</p>
+        </div>
+        
+        <div class="control-group">
+            <h2 class="text-lg font-semibold mb-3">2. Node Information</h2>
+            <div id="info-box">
+                <p id="info-placeholder" class="text-gray-400">Click on a node to see its details.</p>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <h2 class="text-lg font-semibold mb-3">3. Visual Modifiers</h2>
+            <div id="modulator-container" class="flex flex-col gap-2 mb-4">
+                </div>
+            <label class="text-sm font-medium text-gray-400">Directory Spacing:</label>
+            <input type="range" id="dir-spacing-slider" min="0.5" max="5" value="1.5" step="0.1">
+            <label class="text-sm font-medium text-gray-400">File Orbit Spacing:</label>
+            <input type="range" id="file-spacing-slider" min="0.5" max="5" value="1.0" step="0.1">
+        </div>
+
+        <div class="control-group">
+            <h3 class="text-md font-semibold mb-2">Global Visual Settings</h3>
+            <div class="flex flex-col gap-2">
+                <label class="text-sm font-medium text-gray-400">File Shape:</label>
+                <select id="file-shape-select"></select>
+                <label class="text-sm font-medium text-gray-400">File Color:</label>
+                <select id="file-color-select"></select>
+                <label class="text-sm font-medium text-gray-400">Directory Shape:</label>
+                <select id="dir-shape-select"></select>
+                <label class="text-sm font-medium text-gray-400">Directory Color:</label>
+                <select id="dir-color-select"></select>
+            </div>
+        </div>
+        
+        <div class="control-group">
+             <div class="flex items-center mt-2">
+                <input type="checkbox" id="show-files-checkbox" checked>
+                <label for="show-files-checkbox" class="ml-2 text-sm font-medium text-gray-300">Show Files</label>
+            </div>
+            <div class="flex items-center mt-2">
+                <input type="checkbox" id="show-connections-checkbox" checked>
+                <label for="show-connections-checkbox" class="ml-2 text-sm font-medium text-gray-300">Show Connections</label>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <button id="reset-modulators-btn" class="mt-4">Reset Visualization</button>
+        </div>
+
+    </div>
+
+    <div id="main-content">
+        <canvas id="bg"></canvas>
+        <div id="loading-overlay">
+            <div class="spinner"></div>
+            <p id="loading-text">Loading...</p>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { Line2 } from 'three/addons/lines/Line2.js';
+        import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+        import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
+
+        // --- Core Three.js Setup ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, (window.innerWidth - 420) / window.innerHeight, 0.1, 10000);
+        const renderer = new THREE.WebGLRenderer({ canvas: document.querySelector('#bg'), antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth - 420, window.innerHeight);
+        camera.position.set(0, 20, 100);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.maxPolarAngle = Math.PI;
+        controls.minPolarAngle = 0;
+        controls.minAzimuthAngle = -Infinity;
+        controls.maxAzimuthAngle = Infinity;
+        
+        scene.add(new THREE.AmbientLight(0xcccccc, 0.8));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        dirLight.position.set(5, 10, 7.5);
+        scene.add(dirLight);
+
+        // --- UI Element References ---
+        const loadDirBtn = document.getElementById('load-dir-btn');
+        const folderPicker = document.getElementById('folder-picker');
+        const loadFileBtn = document.getElementById('load-file-btn');
+        const filePicker = document.getElementById('file-picker');
+        const resetModulatorsBtn = document.getElementById('reset-modulators-btn');
+        const infoBox = document.getElementById('info-box');
+        const showFilesCheckbox = document.getElementById('show-files-checkbox');
+        const showConnectionsCheckbox = document.getElementById('show-connections-checkbox');
+        const dirSpacingSlider = document.getElementById('dir-spacing-slider');
+        const fileSpacingSlider = document.getElementById('file-spacing-slider');
+        const fileShapeSelect = document.getElementById('file-shape-select');
+        const fileColorSelect = document.getElementById('file-color-select');
+        const dirShapeSelect = document.getElementById('dir-shape-select');
+        const dirColorSelect = document.getElementById('dir-color-select');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const loadingText = document.getElementById('loading-text');
+
+        let nodesGroup = new THREE.Group();
+        let linesGroup = new THREE.Group();
+        let fileOrbitsGroup = new THREE.Group();
+        let lastTreeData = null; 
+        let allFilesystemNodes = new Map();
+        let lastProcessedFileList = null;
+        
+        // FIXED: Moved nodesToProcessQueue to a higher scope
+        let nodesToProcessQueue = [];
+
+        scene.add(nodesGroup, linesGroup, fileOrbitsGroup); 
+
+        const nlblColors = [ new THREE.Color(0xcccccc), new THREE.Color(0x4ade80), new THREE.Color(0x38bdf8), new THREE.Color(0x60a5fa), new THREE.Color(0xfacc15), new THREE.Color(0xfb923c), new THREE.Color(0xf87171), new THREE.Color(0xc084fc), new THREE.Color(0xf472b6), new THREE.Color(0xffffff) ];
+        const geometryConstructors = { 'SphereGeometry': THREE.SphereGeometry, 'BoxGeometry': THREE.BoxGeometry, 'TetrahedronGeometry': THREE.TetrahedronGeometry, 'IcosahedronGeometry': THREE.IcosahedronGeometry, 'OctahedronGeometry': THREE.OctahedronGeometry, 'CylinderGeometry': THREE.CylinderGeometry, 'ConeGeometry': THREE.ConeGeometry, 'TorusGeometry': THREE.TorusGeometry, 'TorusKnotGeometry': THREE.TorusKnotGeometry };
+        
+        const reusableGeometries = {};
+        for (const geoName in geometryConstructors) {
+            if (geoName === 'SphereGeometry') reusableGeometries[geoName] = new geometryConstructors[geoName](1, 24, 24);
+            else if (geoName === 'CylinderGeometry') reusableGeometries[geoName] = new geometryConstructors[geoName](0.7, 0.7, 2, 32); 
+            else if (geoName === 'ConeGeometry') reusableGeometries[geoName] = new geometryConstructors[geoName](1, 2, 32); 
+            else if (geoName === 'TorusGeometry') reusableGeometries[geoName] = new geometryConstructors[geoName](1, 0.4, 16, 100);
+            else if (geoName === 'TorusKnotGeometry') reusableGeometries[geoName] = new geometryConstructors[geoName](1, 0.2, 100, 16);
+            else reusableGeometries[geoName] = new geometryConstructors[geoName](1.5); 
+        }
+
+        const fileGeometries = [ reusableGeometries['IcosahedronGeometry'], reusableGeometries['BoxGeometry'], reusableGeometries['TetrahedronGeometry'], reusableGeometries['TorusKnotGeometry'], reusableGeometries['OctahedronGeometry'] ];
+        
+        const visualProperties = [ {value: "None", label: "None"}, {value: "Node Size", label: "Node Size"}, {value: "Node Color Hue", label: "Node Color (Hue)"}, {value: "File Count", label: "File Count"}, {value: "File Size", label: "File Size"}, {value: "Directory Depth", label: "Directory Depth"}, ];
+        const DEFAULT_MODULATORS = [ { prop: "Node Size", key: "total_size_bytes", intensity: 100 }, { prop: "Node Color Hue", key: "depth_level", intensity: 100 } ];
+        const predefinedColors = { "default": "Default (Depth-based)", "0xFF0000": "Red", "0xFFA500": "Orange", "0xFFFF00": "Yellow", "0x008000": "Green", "0x0000FF": "Blue", "0x800080": "Violet", "0x808080": "Gray", "0xFFFFFF": "White" };
+
+        // --- Helper Functions ---
+        function showLoading(isLoading, text = "Processing data...") {
+            loadingText.textContent = text;
+            loadingOverlay.classList.toggle('visible', isLoading);
+        }
+
+        function clearScene() {
+            [nodesGroup, linesGroup, fileOrbitsGroup].forEach(group => { 
+                group.traverse(child => {
+                    if (child.isMesh) {
+                        child.geometry.dispose();
+                        child.material.dispose();
+                    }
+                });
+                group.clear();
+            });
+        }
+        
+        function getPathParts(path) { return path.split(/[\/\\]/).filter(Boolean); }
+        function getParentPath(fullRelativePath) {
+            const normalizedPath = fullRelativePath.replace(/\\/g, '/');
+            const lastSlashIndex = normalizedPath.lastIndexOf('/');
+            return lastSlashIndex <= 0 ? '' : normalizedPath.substring(0, lastSlashIndex); 
+        }
+        function getBaseName(fullPath) { const parts = getPathParts(fullPath); return parts.length > 0 ? parts[parts.length - 1] : fullPath; }
+        function formatBytesAdaptive(bytes_val) { if (bytes_val === 0) return '0 B'; const k = 1024; const sizes = ['B', 'KB', 'MB', 'GB', 'TB']; const i = Math.floor(Math.log(bytes_val) / Math.log(k)); return parseFloat((bytes_val / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]; }
+        function getFibonacciSpherePoints(samples, radius) { if (samples <= 0) return []; if (samples === 1) return [new THREE.Vector3(0, 0, 0)]; let points = []; const phi = Math.PI * (3. - Math.sqrt(5.)); for (let i = 0; i < samples; i++) { const y = 1 - (i / (samples - 1)) * 2; const r = Math.sqrt(1 - y * y) * radius; points.push(new THREE.Vector3(Math.cos(phi * i) * r, y * radius, Math.sin(phi * i) * r)); } return points; }
+        function sortChildren(node) { if (!node.children) return; node.children.sort((a, b) => { if (a.type === 'dir' && b.type === 'file') return -1; if (a.type === 'file' && b.type === 'dir') return 1; return a.name.localeCompare(b.name); }); node.children.forEach(child => { if (child.type === 'dir') sortChildren(child); }); }
+
+        // --- Data Processing ---
+        function processInputData(inputData, isDirectoryInput = true) {
+            const fileList = isDirectoryInput ? inputData : [inputData];
+            if (fileList.length === 0) return null;
+
+            const rootPath = isDirectoryInput ? getPathParts(fileList[0].webkitRelativePath)[0] : fileList[0].name;
+            const rootNode = { path: rootPath, name: getBaseName(rootPath), type: 'dir', children: [], total_size_bytes: 0, file_count: 0, depth_level: 0, files: [] };
+            allFilesystemNodes.set(rootPath, rootNode);
+
+            for (const file of fileList) {
+                const path = isDirectoryInput ? file.webkitRelativePath : file.name;
+                const parts = getPathParts(path);
+                let currentDirNode = rootNode;
+
+                for (let i = 1; i < parts.length; i++) {
+                    const part = parts[i];
+                    const currentPath = parts.slice(0, i + 1).join('/');
+                    if (i < parts.length - 1) { // It's a directory
+                        let dirNode = allFilesystemNodes.get(currentPath);
+                        if (!dirNode) {
+                            dirNode = { path: currentPath, name: part, type: 'dir', children: [], total_size_bytes: 0, file_count: 0, depth_level: i, files: [] };
+                            currentDirNode.children.push(dirNode);
+                            allFilesystemNodes.set(currentPath, dirNode);
+                        }
+                        currentDirNode = dirNode;
+                    } else { // It's a file
+                        const fileEntry = { path: path, name: part, type: 'file', extension: path.includes('.') ? path.substring(path.lastIndexOf('.') + 1) : '', size_bytes: file.size, depth_level: i, originalFileObject: file };
+                        currentDirNode.files.push(fileEntry);
+                        allFilesystemNodes.set(path, fileEntry);
+                    }
+                }
+            }
+
+            // Calculate sizes and file counts recursively
+            function calculateDirectoryStats(node) {
+                node.total_size_bytes = node.files.reduce((sum, file) => sum + file.size_bytes, 0);
+                node.file_count = node.files.length;
+                node.children.forEach(child => {
+                    calculateDirectoryStats(child);
+                    node.total_size_bytes += child.total_size_bytes;
+                    node.file_count += child.file_count;
+                });
+            }
+            calculateDirectoryStats(rootNode);
+            sortChildren(rootNode);
+            return rootNode;
+        }
+
+        // --- Visualization Functions ---
+        async function visualizeDataIterative(dataTree) {
+            showLoading(true, `Visualizing: ${dataTree.name}...`);
+            clearScene();
+            
+            nodesToProcessQueue = [{ nodeData: dataTree, parentPosition: new THREE.Vector3(0, 0, 0), depth: 0 }];
+            
+            while (nodesToProcessQueue.length > 0) {
+                const { nodeData, parentPosition, depth } = nodesToProcessQueue.shift();
+                
+                // Visualization logic for a single node...
+                const isDir = nodeData.type === 'dir';
+                const shape = isDir ? dirShapeSelect.value : fileShapeSelect.value;
+                const color = isDir ? dirColorSelect.value : fileColorSelect.value;
+                
+                let nodeGeometry = isDir ? reusableGeometries['SphereGeometry'] : fileGeometries[Math.floor(Math.random() * fileGeometries.length)];
+                if (shape !== 'default' && reusableGeometries[shape]) nodeGeometry = reusableGeometries[shape];
+                
+                let nodeColor = nlblColors[depth % nlblColors.length];
+                if (color !== 'default') nodeColor = new THREE.Color(parseInt(color));
+
+                const material = new THREE.MeshStandardMaterial({ color: nodeColor, wireframe: false });
+                const mesh = new THREE.Mesh(nodeGeometry, material);
+                
+                let scale = isDir ? Math.max(0.5, Math.log10(nodeData.total_size_bytes || 1)) : Math.max(0.1, Math.log10(nodeData.size_bytes || 1) / 2);
+                mesh.scale.setScalar(scale);
+                mesh.position.copy(parentPosition);
+                mesh.userData = nodeData;
+                nodesGroup.add(mesh);
+
+                if (isDir && nodeData.children.length > 0) {
+                    const offsetRadius = (scale * 5) * parseFloat(dirSpacingSlider.value);
+                    const points = getFibonacciSpherePoints(nodeData.children.length, offsetRadius);
+                    nodeData.children.forEach((child, i) => {
+                        const childPosition = new THREE.Vector3().copy(parentPosition).add(points[i]);
+                        if (showConnectionsCheckbox.checked) {
+                            const lineGeo = new LineGeometry().setPositions([parentPosition.x, parentPosition.y, parentPosition.z, childPosition.x, childPosition.y, childPosition.z]);
+                            const lineMat = new LineMaterial({ color: 0x4b5563, linewidth: 2, worldUnits: false });
+                            lineMat.resolution.set(window.innerWidth - 420, window.innerHeight);
+                            linesGroup.add(new Line2(lineGeo, lineMat));
+                        }
+                        nodesToProcessQueue.push({ nodeData: child, parentPosition: childPosition, depth: depth + 1 });
+                    });
+                }
+
+                if (isDir && nodeData.files.length > 0 && showFilesCheckbox.checked) {
+                    const orbit = new THREE.Group();
+                    orbit.position.copy(parentPosition);
+                    fileOrbitsGroup.add(orbit);
+                    const fileOrbitRadius = scale * 1.5 * parseFloat(fileSpacingSlider.value);
+                    const filesToRender = Math.min(nodeData.files.length, 100);
+                    for (let i = 0; i < filesToRender; i++) {
+                        const file = nodeData.files[i];
+                        const fileMesh = new THREE.Mesh(fileGeometries[i % fileGeometries.length], material.clone());
+                        const angle = (i / filesToRender) * Math.PI * 2;
+                        fileMesh.position.set(Math.cos(angle) * fileOrbitRadius, 0, Math.sin(angle) * fileOrbitRadius);
+                        fileMesh.scale.setScalar(scale * 0.1);
+                        fileMesh.userData = file;
+                        orbit.add(fileMesh);
+                    }
+                }
+
+                if (nodesToProcessQueue.length % 50 === 0) {
+                    renderer.render(scene, camera);
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }
+            }
+            showLoading(false);
+        }
+
+        function rerender() { if (lastTreeData) { visualizeDataIterative(lastTreeData); } }
+
+        // --- Event Listeners and Main Animation Loop ---
+        loadDirBtn.addEventListener('click', () => folderPicker.click());
+        folderPicker.addEventListener('change', (event) => {
+            const files = event.target.files;
+            if (files.length === 0) return;
+            allFilesystemNodes.clear(); // Clear previous data for a new directory load
+            lastProcessedFileList = files;
+            lastTreeData = processInputData(files, true);
+            if (lastTreeData) rerender();
+        });
+
+        loadFileBtn.addEventListener('click', () => filePicker.click());
+        filePicker.addEventListener('change', (event) => {
+            // This is a simplified version, proper composite view requires more logic
+            if (event.target.files.length > 0) {
+                 const newFileNode = processInputData(event.target.files[0], false);
+                 if (newFileNode) {
+                    // This is a placeholder for a more complex merge logic
+                    // For now, we just re-render the new node as the root.
+                    lastTreeData = newFileNode;
+                    rerender();
+                 }
+            }
+        });
+        
+        resetModulatorsBtn.addEventListener('click', () => {
+            clearScene();
+            allFilesystemNodes.clear();
+            lastTreeData = null;
+            lastProcessedFileList = null;
+            infoBox.innerHTML = `<p id="info-placeholder" class="text-gray-400">Click on a node to see its details.</p>`;
+            // Reset sliders to default values
+            dirSpacingSlider.value = 1.5;
+            fileSpacingSlider.value = 1.0;
+            createModulatorSlots();
+            rerender();
+        });
+
+        [dirSpacingSlider, fileSpacingSlider, fileShapeSelect, fileColorSelect, dirShapeSelect, dirColorSelect, showFilesCheckbox, showConnectionsCheckbox].forEach(el => {
+            el.addEventListener('input', rerender);
+        });
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        function onMouseClick(event) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(nodesGroup.children, true);
+            if (intersects.length > 0) {
+                const data = intersects[0].object.userData;
+                let html = ``;
+                if (data.type === 'dir') {
+                    html = `<div><strong>Directory:</strong> ${data.name}</div>
+                            <div><strong>Path:</strong> ${data.path}</div>
+                            <div><strong>Size:</strong> ${formatBytesAdaptive(data.total_size_bytes)}</div>
+                            <div><strong>Files:</strong> ${data.file_count}</div>`;
+                } else {
+                     html = `<div><strong>File:</strong> ${data.name}</div>
+                            <div><strong>Path:</strong> ${data.path}</div>
+                            <div><strong>Size:</strong> ${formatBytesAdaptive(data.size_bytes)}</div>`;
+                }
+                infoBox.innerHTML = html;
+            }
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            const w = window.innerWidth - 420;
+            const h = window.innerHeight;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+        });
+        
+        window.addEventListener('click', onMouseClick, false);
+        
+        function createModulatorSlots() {
+            const modulatorContainer = document.getElementById('modulator-container');
+            if (!modulatorContainer) return;
+            modulatorContainer.innerHTML = '';
+            DEFAULT_MODULATORS.forEach(mod => {
+                const slot = document.createElement('div');
+                slot.className = 'modulator-slot';
+                slot.innerHTML = `
+                    <select class="prop-select w-full"><option>${mod.prop}</option></select>
+                    <input type="text" class="key-input w-full" value="${mod.key}" placeholder="JSON Key">
+                    <div class="intensity-slider-wrapper col-span-2">
+                        <input type="range" class="intensity-slider" min="0" max="100" value="${mod.intensity}">
+                        <span class="intensity-value">${mod.intensity}%</span>
+                    </div>
+                `;
+                modulatorContainer.appendChild(slot);
+            });
+
+            // Populate global selects
+            const populateSelect = (selectEl, options, defaultLabel) => {
+                selectEl.innerHTML = `<option value="default">${defaultLabel}</option>`;
+                for (const key in options) {
+                    const option = document.createElement('option');
+                    option.value = key;
+                    option.textContent = options[key];
+                    selectEl.appendChild(option);
+                }
+            };
+            const shapeOptions = {};
+            Object.keys(reusableGeometries).forEach(g => shapeOptions[g] = g.replace('Geometry', ''));
+            populateSelect(fileShapeSelect, shapeOptions, 'Default (Random)');
+            populateSelect(dirShapeSelect, shapeOptions, 'Default (Sphere)');
+            populateSelect(fileColorSelect, predefinedColors, 'Default (Depth)');
+            populateSelect(dirColorSelect, predefinedColors, 'Default (Depth)');
+        }
+
+        createModulatorSlots();
+        animate();
+    </script>
+</body>
+</html>
